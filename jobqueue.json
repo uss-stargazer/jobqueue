@@ -1,1 +1,4 @@
-{ "$schema": "./jobqueue.schema.json", "queue": [] }
+{
+  "$schema": "https://raw.githubusercontent.com/uss-stargazer/jobqueue/refs/heads/main/jobqueue.schema.json",
+  "queue": []
+}

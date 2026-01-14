@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/uss-stargazer/jobqueue/jobqueue.shema.json",
+  "$id": "https://raw.githubusercontent.com/uss-stargazer/jobqueue/refs/heads/main/jobqueue.schema.json",
   "title": "Job Queue",
   "description": "Root object for jobs/tasks FIFO queue model.",
   "type": "object",
