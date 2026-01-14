@@ -1,0 +1,62 @@
+{
+  "name": "job-viewer",
+  "version": "0.0.0",
+  "description": "Script for viewing jobqueue.json and projectpool.json",
+  "type": "module",
+  "engines": {
+    "node": ">= 22.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@octokit/request": "^10.0.7",
+    "@types/eslint__js": "^8.42.3",
+    "@types/node": "^25.0.6",
+    "@typescript-eslint/parser": "^8.52.0",
+    "@vitest/coverage-v8": "^4.0.17",
+    "@vitest/eslint-plugin": "^1.6.6",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.0.0",
+    "prettier": "^3.7.4",
+    "rimraf": "^6.1.2",
+    "ts-api-utils": "^2.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.52.0",
+    "vitest": "^4.0.17"
+  },
+  "scripts": {
+    "start": "node build/src/main.js",
+    "clean": "rimraf coverage build tmp",
+    "prebuild": "npm run lint",
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -w -p tsconfig.json",
+    "build:release": "npm run clean && tsc -p tsconfig.release.json",
+    "lint": "eslint .",
+    "test": "vitest run unit --config __tests__/vitest.config.ts",
+    "test:coverage": "vitest run unit --config __tests__/vitest.config.ts --coverage.enabled --coverage.all",
+    "prettier": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --write",
+    "prettier:check": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --check",
+    "test:watch": "vitest unit"
+  },
+  "author": "USS Stargazer",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.0",
+    "@inquirer/search": "^4.1.0",
+    "@octokit/auth-basic": "^1.4.8",
+    "@octokit/rest": "^22.0.1",
+    "chalk": "^5.6.2",
+    "clear": "^0.1.0",
+    "clui": "^0.3.6",
+    "configstore": "^7.1.0",
+    "figlet": "^1.9.4",
+    "inquirer": "^13.2.0",
+    "lodash": "^4.17.21",
+    "minimist": "^1.2.8",
+    "open-editor": "^6.0.0",
+    "simple-git": "^3.30.0",
+    "tmp-promise": "^3.0.3",
+    "touch": "^3.1.1",
+    "zod": "^4.3.5"
+  }
+}
