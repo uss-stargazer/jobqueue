@@ -1,4 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/uss-stargazer/jobqueue/refs/heads/main/projectpool.schema.json",
+  "$schema": "https://raw.githubusercontent.com/uss-stargazer/jobqueue/refs/heads/main/schemas/projectpool.schema.json",
   "pool": []
 }
