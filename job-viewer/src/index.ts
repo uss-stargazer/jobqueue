@@ -37,7 +37,7 @@ async function main(
       });
       action = response.action;
     } catch (error) {
-      if (error instanceof ExitPromptError) return;
+      if (error instanceof ExitPromptError) break;
       throw error;
     }
     if (!Object.keys(actions).includes(action)) {

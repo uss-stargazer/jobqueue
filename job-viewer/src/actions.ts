@@ -86,7 +86,7 @@ const haveUserUpdateData = async <S extends z.ZodType>({
       `JSON invalid: ${updatedResult.error.message}`,
     );
   }
-  tmpFile.cleanup();
+  await tmpFile.cleanup();
 
   return (
     updatedResult &&
@@ -166,16 +166,16 @@ const actions: {
       );
       if (jobProject.status !== 'active') {
         jobProject.status = 'active';
-        projectPool.sync();
+        await projectPool.sync();
       }
 
       queue.unshift(updatedJob);
       console.log(chalk.blue('[i]'), 'Job edited');
     } else {
-      console.log('✔️ Job completed and deleteed');
+      console.log(chalk.green('✔'), 'Job completed and deleted');
     }
 
-    jobQueue.sync();
+    await jobQueue.sync();
   },
 
   enqueueJob: async ({ jobQueue, projectPool }, editor) => {
@@ -211,13 +211,13 @@ const actions: {
     const jobProject = pool.find((project) => project.name === job.project);
     if (jobProject.status !== 'active') {
       jobProject.status = 'active';
-      projectPool.sync();
+      await projectPool.sync();
     }
 
     queue.push(job);
-    console.log('✔️ Job enqueued');
+    console.log(chalk.green('✔'), 'Job enqueued');
 
-    jobQueue.sync();
+    await jobQueue.sync();
   },
 
   addProject: async ({ projectPool }, editor) => {
@@ -249,11 +249,18 @@ const actions: {
     });
 
     pool.push(project);
-    projectPool.sync();
+    console.log(chalk.green('✔'), 'Added new project');
+
+    await projectPool.sync();
   },
 
   editProject: async ({ projectPool, jobQueue }, editor) => {
     const pool = projectPool.data.pool;
+
+    if (pool.length === 0) {
+      console.log(chalk.red('[e]'), 'No projects in pool.');
+      return;
+    }
 
     const projectName = await search({
       message: 'Enter the name of the project to edit',
@@ -281,6 +288,10 @@ const actions: {
     console.log(
       chalk.blue('[i]'),
       'Opening project JSON in editor for editing.',
+    );
+    console.log(
+      chalk.blue('[i]'),
+      'Delete file contents to delete the project.',
     );
 
     let userDeletedProject = false;
@@ -334,15 +345,15 @@ const actions: {
           jobsReferencingProject.forEach((job) => {
             job.project = updatedProject.name;
           });
-          jobQueue.sync();
+          await jobQueue.sync();
         }
       }
       console.log(chalk.blue('[i]'), 'Project edited');
     } else {
-      console.log('✔️ Project deleted');
+      console.log(chalk.green('✔'), 'Project deleted');
     }
 
-    projectPool.sync();
+    await projectPool.sync();
   },
 } as const;
 
