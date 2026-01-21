@@ -10,7 +10,8 @@ import {
 } from './definitions.js';
 import chalk from 'chalk';
 import { confirm, search } from '@inquirer/prompts';
-import { haveUserUpdateData } from './utils.js';
+import { haveUserUpdateData, reorder } from './utils.js';
+import sortableCheckbox from './sortableCheckbox.js';
 
 // Helper functions -------------------------------------------------------------------------------
 
@@ -140,6 +141,7 @@ const updateProject = async (
 export const actionNames = [
   'dequeueJob',
   'enqueueJob',
+  'editQueue',
   'addProject',
   'editProject',
 ] as const;
@@ -209,6 +211,68 @@ const actions: {
     } catch (error) {
       if (!(error instanceof AbortError)) throw error;
       console.log(chalk.red('[e]'), error.message);
+    }
+  },
+
+  editQueue: async ({ jobQueue, projectPool }, editor) => {
+    const queue = jobQueue.data.queue;
+    if (queue.length === 0) {
+      console.log(chalk.red('[e]'), 'No jobs in queue.');
+      return;
+    }
+
+    const reorderedQueueIdxs = await sortableCheckbox({
+      message: 'Reorder queue and/or select jobs to edit',
+      choices: queue.map((job, jobIdx) => ({
+        name: `[${job.project}]\t${job.name}`,
+        value: jobIdx,
+      })),
+    });
+
+    reorder(
+      queue,
+      reorderedQueueIdxs.map(({ value: jobIdx }) => jobIdx),
+    );
+    console.log(chalk.green('✔'), 'Queue reordered.');
+
+    // Open checked activities for editing
+
+    const checkedActivities = reorderedQueueIdxs
+      .map(({ checked }, jobIdx) => ({ checked, jobIdx }))
+      .filter(({ checked }) => checked);
+
+    console.log(chalk.blue('[i]'), 'Opening selected jobs for editing.');
+    console.log(chalk.blue('[i]'), 'Delete file contents to delete a job.');
+
+    for (
+      let checkedIdx = 0;
+      checkedIdx < checkedActivities.length;
+      checkedIdx++
+    ) {
+      const jobIdx = checkedActivities[checkedIdx].jobIdx;
+
+      try {
+        const job = queue[jobIdx];
+        const updatedJob = await updateJob(job, projectPool, editor);
+        if (updatedJob === 'deleted') {
+          queue.splice(jobIdx, 1);
+          console.log(chalk.green('✔'), `Job [${job.name}] deleted.`);
+        } else {
+          queue[jobIdx] = updatedJob;
+          console.log(chalk.green('✔'), `Job [${updatedJob.name}] edited.`);
+        }
+
+        await jobQueue.sync();
+      } catch (error) {
+        if (!(error instanceof AbortError)) throw error;
+
+        console.log(chalk.red('[e]'), error.message);
+        if (
+          checkedIdx + 1 < checkedActivities.length &&
+          (await confirm({ message: 'Abort all edits?' }))
+        )
+          break;
+      }
     }
   },
 
