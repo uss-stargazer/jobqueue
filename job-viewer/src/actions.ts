@@ -188,6 +188,11 @@ const actions: {
   },
 
   enqueueJob: async ({ jobQueue, projectPool }, editor) => {
+    if (projectPool.data.pool.length === 0) {
+      console.log(chalk.red('[e]'), 'No projects in pool to make job for.');
+      return;
+    }
+
     const queue = jobQueue.data.queue;
     const placeholderJob: Job = {
       name: '[placeholder]',
