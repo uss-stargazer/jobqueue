@@ -1,5 +1,6 @@
 import * as tmp from 'tmp-promise';
 import {
+  AbortError,
   Job,
   JobQueueSchema,
   JobSchema,
@@ -46,7 +47,31 @@ const haveUserUpdateData = async <S extends z.ZodType>(
     undefined;
 
   while (true) {
-    await openEditor([tmpFile.path], { wait: true, editor });
+    // Open temp file in editor while also allowing user to abort
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const editorPromise = openEditor([tmpFile.path], {
+      wait: true,
+      editor: options.editor,
+    });
+    const abortPromise = confirm(
+      { message: 'Type `y` to abort...' },
+      { signal },
+    )
+      .finally(() => {
+        // Remove prompt line
+        process.stdout.moveCursor(0, -1);
+        process.stdout.clearLine(1);
+      })
+      .then(async (shouldAbort) => {
+        if (shouldAbort) {
+          await tmpFile.cleanup();
+          throw new AbortError('User aborted action');
+        }
+      });
+    await Promise.race([editorPromise, abortPromise]);
+    controller.abort();
 
     // Load back editor contents and validate them
 
@@ -138,32 +163,42 @@ const actions: {
     console.log(chalk.blue('[i]'), 'Delete file contents to finish the job.');
 
     let userDeletedJob = false;
-    const updatedJob = await haveUserUpdateData(
-      JobSchema,
-      job,
-      {
-        editor,
-        errorHead: 'Rejected dequeued job',
-        tmpPrefix: 'jobqueue-job',
-      },
-      {
-        preparse(rawContents) {
-          // Check if user deleted the job
-          if (rawContents.trim().length === 0) {
-            userDeletedJob = true;
-            return 'pass';
-          }
-          return 'continue';
+    let updatedJob;
+    try {
+      updatedJob = await haveUserUpdateData(
+        JobSchema,
+        job,
+        {
+          editor,
+          errorHead: 'Rejected dequeued job',
+          tmpPrefix: 'jobqueue-job',
         },
-        postparse(job) {
-          return checkProjectName(job.project, pool)
-            ? 'continue'
-            : {
-                errMessage: `invalid project name: '${job.project}' not in project pool`,
-              };
+        {
+          preparse(rawContents) {
+            // Check if user deleted the job
+            if (rawContents.trim().length === 0) {
+              userDeletedJob = true;
+              return 'pass';
+            }
+            return 'continue';
+          },
+          postparse(job) {
+            return checkProjectName(job.project, pool)
+              ? 'continue'
+              : {
+                  errMessage: `invalid project name: '${job.project}' not in project pool`,
+                };
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      if (error instanceof AbortError) {
+        console.log(chalk.red('[e]'), error.message);
+        queue.unshift(job);
+        return;
+      }
+      throw error;
+    }
 
     if (!userDeletedJob) {
       // Make sure corresponding project is set to active
@@ -199,24 +234,33 @@ const actions: {
 
     console.log(chalk.blue('[i]'), 'Opening job JSON in editor for editing.');
 
-    const job = await haveUserUpdateData(
-      JobSchema,
-      placeholderJob,
-      {
-        editor,
-        errorHead: 'Rejected job to be enqueued',
-        tmpPrefix: 'jobqueue-job',
-      },
-      {
-        postparse: (job) =>
-          checkProjectName(job.project, pool)
-            ? 'continue'
-            : {
-                errMessage: `invalid project name: '${job.project}' not in project pool`,
-              },
-      },
-    );
-    
+    let job;
+    try {
+      job = await haveUserUpdateData(
+        JobSchema,
+        placeholderJob,
+        {
+          editor,
+          errorHead: 'Rejected job to be enqueued',
+          tmpPrefix: 'jobqueue-job',
+        },
+        {
+          postparse: (job) =>
+            checkProjectName(job.project, pool)
+              ? 'continue'
+              : {
+                  errMessage: `invalid project name: '${job.project}' not in project pool`,
+                },
+        },
+      );
+    } catch (error) {
+      if (error instanceof AbortError) {
+        console.log(chalk.red('[e]'), error.message);
+        return;
+      }
+      throw error;
+    }
+
     // Make sure corresponding project is set to active
     const jobProject = pool.find((project) => project.name === job.project);
     if (jobProject.status !== 'active') {
@@ -244,24 +288,33 @@ const actions: {
       'Opening project JSON in editor for editing.',
     );
 
-    const project = await haveUserUpdateData(
-      ProjectSchema,
-      placeholderProject,
-      {
-        editor,
-        errorHead: 'Rejected new project',
-        tmpPrefix: 'jobqueue-project',
-      },
-      {
-        postparse: (project) =>
-          checkProjectName(project.name, pool)
-            ? {
-                errMessage: `'${project.name}' already exists in pool`,
-              }
-            : 'continue',
-      },
-    );
-  
+    let project;
+    try {
+      project = await haveUserUpdateData(
+        ProjectSchema,
+        placeholderProject,
+        {
+          editor,
+          errorHead: 'Rejected new project',
+          tmpPrefix: 'jobqueue-project',
+        },
+        {
+          postparse: (project) =>
+            checkProjectName(project.name, pool)
+              ? {
+                  errMessage: `'${project.name}' already exists in pool`,
+                }
+              : 'continue',
+        },
+      );
+    } catch (error) {
+      if (error instanceof AbortError) {
+        console.log(chalk.red('[e]'), error.message);
+        return;
+      }
+      throw error;
+    }
+
     pool.push(project);
     console.log(chalk.green('✔'), 'Added new project');
 
@@ -309,43 +362,53 @@ const actions: {
     );
 
     let userDeletedProject = false;
-    const updatedProject = await haveUserUpdateData(
-      ProjectSchema,
-      project,
-      {
-        editor,
-        errorHead: 'Rejected edited project',
-        tmpPrefix: 'jobqueue-project',
-      },
-      {
-        preparse: (rawContents) => {
-          // Check if user deleted the project
-          if (rawContents.trim().length === 0) {
-            userDeletedProject = true;
-            return 'pass';
-          }
-          return 'continue';
+    let updatedProject;
+    try {
+      updatedProject = await haveUserUpdateData(
+        ProjectSchema,
+        project,
+        {
+          editor,
+          errorHead: 'Rejected edited project',
+          tmpPrefix: 'jobqueue-project',
         },
-        postparse: (updatedProject) => {
-          if (
-            updatedProject.name !== projectName &&
-            checkProjectName(updatedProject.name, pool)
-          )
-            return {
-              errMessage: `new name '${updatedProject.name}' already exists in pool`,
-            };
-          if (
-            jobsReferencingProject.length > 0 &&
-            updatedProject.status !== 'active'
-          )
-            return {
-              errMessage: `status '${updatedProject.status}' can not be set: jobs in queue still reference project`,
-            };
-          return 'continue';
+        {
+          preparse: (rawContents) => {
+            // Check if user deleted the project
+            if (rawContents.trim().length === 0) {
+              userDeletedProject = true;
+              return 'pass';
+            }
+            return 'continue';
+          },
+          postparse: (updatedProject) => {
+            if (
+              updatedProject.name !== projectName &&
+              checkProjectName(updatedProject.name, pool)
+            )
+              return {
+                errMessage: `new name '${updatedProject.name}' already exists in pool`,
+              };
+            if (
+              jobsReferencingProject.length > 0 &&
+              updatedProject.status !== 'active'
+            )
+              return {
+                errMessage: `status '${updatedProject.status}' can not be set: jobs in queue still reference project`,
+              };
+            return 'continue';
+          },
         },
-      },
-    );
-    
+      );
+    } catch (error) {
+      if (error instanceof AbortError) {
+        console.log(chalk.red('[e]'), error.message);
+        pool.push(project);
+        return;
+      }
+      throw error;
+    }
+
     if (!userDeletedProject) {
       pool.push(updatedProject);
 

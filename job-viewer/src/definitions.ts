@@ -66,3 +66,11 @@ export const makeJsonData = async <S extends z.ZodType>(
     },
   };
 };
+
+// Errors
+
+export class AbortError extends Error {
+  constructor(message) {
+    super(message);
+  }
+}
