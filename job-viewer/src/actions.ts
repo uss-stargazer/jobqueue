@@ -14,9 +14,102 @@ import * as z from 'zod';
 import { confirm, search } from '@inquirer/prompts';
 import openEditor from 'open-editor';
 
+// Helper functions -------------------------------------------------------------------------------
+
+type UserUpdateCheckFunction<T> = (
+  input: T,
+) => 'pass' | 'continue' | { errMessage: string };
+
+const haveUserUpdateData = async <S extends z.ZodType>({
+  schema,
+  data,
+  editor,
+  errorHead,
+  tmpPrefix,
+  preparseCheck,
+  postparseCheck,
+}: {
+  schema: S;
+  data: z.infer<S>;
+  editor?: string;
+  errorHead: string;
+  tmpPrefix?: string;
+  preparseCheck?: UserUpdateCheckFunction<string>;
+  postparseCheck?: UserUpdateCheckFunction<z.infer<S>>;
+}): Promise<z.infer<S> | undefined> => {
+  const tmpFile = await tmp.file({
+    prefix: tmpPrefix,
+    postfix: '.json',
+  });
+  await fs.writeFile(
+    tmpFile.path,
+    JSON.stringify(schema.encode(data), undefined, '  '),
+  );
+
+  let updatedResult: ReturnType<typeof schema.safeParse> | undefined =
+    undefined;
+
+  while (true) {
+    await openEditor([tmpFile.path], { wait: true, editor });
+
+    // Load back editor contents and validate them
+
+    const updatedJsonString = await fs.readFile(tmpFile.path, 'utf8');
+
+    if (preparseCheck) {
+      const preparseError = preparseCheck(updatedJsonString);
+      if (preparseError === 'pass') {
+        updatedResult = undefined;
+        break;
+      } else if (typeof preparseError === 'object') {
+        console.log(chalk.red(`${errorHead}:`), preparseError.errMessage);
+        continue;
+      }
+    }
+
+    updatedResult = schema.safeParse(JSON.parse(updatedJsonString));
+
+    if (updatedResult.success) {
+      if (postparseCheck) {
+        const postparseError = postparseCheck(updatedResult.data);
+        if (typeof postparseError === 'object') {
+          console.log(chalk.red(`${errorHead}:`), postparseError.errMessage);
+          continue;
+        }
+      }
+
+      break;
+    }
+    console.log(
+      chalk.red(`${errorHead}:`),
+      `JSON invalid: ${updatedResult.error.message}`,
+    );
+  }
+  await tmpFile.cleanup();
+
+  return (
+    updatedResult &&
+    (updatedResult.success
+      ? updatedResult.data
+      : ((): never => {
+          throw new Error(
+            `${errorHead}: JSON invalid: ${updatedResult.error.message}`,
+          );
+        })())
+  );
+};
+
+const checkProjectName = (name: string, projects: Project[]): boolean =>
+  projects.some((project) => project.name === name);
+
 // Actions definitions ----------------------------------------------------------------------------
 
-export const actionNames = [] as const;
+export const actionNames = [
+  'dequeueJob',
+  'enqueueJob',
+  'addProject',
+  'editProject',
+] as const;
 
 export type ActionName = (typeof actionNames)[number];
 
@@ -28,6 +121,237 @@ const actions: {
     },
     editor?: string,
   ) => Promise<void>;
-} = {} as const;
+} = {
+  dequeueJob: async ({ jobQueue, projectPool }, editor) => {
+    const queue = jobQueue.data.queue;
+    const pool = projectPool.data.pool;
+    const job = queue.shift();
+
+    if (job === undefined) {
+      console.log(chalk.red('[e]'), 'No jobs in queue.');
+      return;
+    }
+
+    console.log(chalk.blue('[i]'), 'Opening job JSON in editor for editing.');
+    console.log(chalk.blue('[i]'), 'Delete file contents to finish the job.');
+
+    let userDeletedJob = false;
+    const updatedJob = await haveUserUpdateData({
+      schema: JobSchema,
+      data: job,
+      editor,
+      errorHead: 'Rejected dequeued job',
+      tmpPrefix: 'jobqueue-job',
+      preparseCheck(rawContents) {
+        // Check if user deleted the job
+        if (rawContents.trim().length === 0) {
+          userDeletedJob = true;
+          return 'pass';
+        }
+        return 'continue';
+      },
+      postparseCheck: (job) =>
+        checkProjectName(job.project, pool)
+          ? 'continue'
+          : {
+              errMessage: `invalid project name: '${job.project}' not in project pool`,
+            },
+    });
+
+    if (!userDeletedJob) {
+      // Make sure corresponding project is set to active
+      const jobProject = pool.find(
+        (project) => project.name === updatedJob.project,
+      );
+      if (jobProject.status !== 'active') {
+        jobProject.status = 'active';
+        await projectPool.sync();
+      }
+
+      queue.unshift(updatedJob);
+      console.log(chalk.blue('[i]'), 'Job edited');
+    } else {
+      console.log(chalk.green('✔'), 'Job completed and deleted');
+    }
+
+    await jobQueue.sync();
+  },
+
+  enqueueJob: async ({ jobQueue, projectPool }, editor) => {
+    const queue = jobQueue.data.queue;
+    const pool = projectPool.data.pool;
+    const placeholderJob: Job = {
+      name: '[placeholder]',
+      objectivies: [
+        'Put the thing in the thing.',
+        'Make sure that thing works.',
+      ],
+      project: '[some-project]',
+      updates: 'Put notes here.',
+    };
+
+    console.log(chalk.blue('[i]'), 'Opening job JSON in editor for editing.');
+
+    const job = await haveUserUpdateData({
+      schema: JobSchema,
+      data: placeholderJob,
+      editor,
+      errorHead: 'Rejected job to be enqueued',
+      tmpPrefix: 'jobqueue-job',
+      postparseCheck: (job) =>
+        checkProjectName(job.project, pool)
+          ? 'continue'
+          : {
+              errMessage: `invalid project name: '${job.project}' not in project pool`,
+            },
+    });
+
+    // Make sure corresponding project is set to active
+    const jobProject = pool.find((project) => project.name === job.project);
+    if (jobProject.status !== 'active') {
+      jobProject.status = 'active';
+      await projectPool.sync();
+    }
+
+    queue.push(job);
+    console.log(chalk.green('✔'), 'Job enqueued');
+
+    await jobQueue.sync();
+  },
+
+  addProject: async ({ projectPool }, editor) => {
+    const pool = projectPool.data.pool;
+    const placeholderProject: Project = {
+      name: '[some-project]',
+      description: 'This is a placeholder project.',
+      repo: 'https://some.project.com/project',
+      status: 'inactive',
+    };
+
+    console.log(
+      chalk.blue('[i]'),
+      'Opening project JSON in editor for editing.',
+    );
+
+    const project = await haveUserUpdateData({
+      schema: ProjectSchema,
+      data: placeholderProject,
+      editor,
+      errorHead: 'Rejected new project',
+      tmpPrefix: 'jobqueue-project',
+      postparseCheck: (project) =>
+        checkProjectName(project.name, pool)
+          ? {
+              errMessage: `'${project.name}' already exists in pool`,
+            }
+          : 'continue',
+    });
+
+    pool.push(project);
+    console.log(chalk.green('✔'), 'Added new project');
+
+    await projectPool.sync();
+  },
+
+  editProject: async ({ projectPool, jobQueue }, editor) => {
+    const pool = projectPool.data.pool;
+
+    if (pool.length === 0) {
+      console.log(chalk.red('[e]'), 'No projects in pool.');
+      return;
+    }
+
+    const projectName = await search({
+      message: 'Enter the name of the project to edit',
+      source: (partialProjectName) => {
+        const projectNames = pool.map((project) => project.name);
+        if (!partialProjectName) return projectNames;
+
+        const partialSet = new Set([...partialProjectName]);
+        return projectNames.filter((projectName) =>
+          partialSet.isSubsetOf(new Set([...projectName])),
+        );
+      },
+      pageSize: 8,
+    });
+    const projectIdx = pool.findIndex(
+      (project) => project.name === projectName,
+    );
+    if (projectIdx < 0) throw new Error('Invalid project name');
+    const [project] = pool.splice(projectIdx, 1);
+
+    const jobsReferencingProject = jobQueue.data.queue.filter(
+      (job) => job.project === projectName,
+    );
+
+    console.log(
+      chalk.blue('[i]'),
+      'Opening project JSON in editor for editing.',
+    );
+    console.log(
+      chalk.blue('[i]'),
+      'Delete file contents to delete the project.',
+    );
+
+    let userDeletedProject = false;
+    const updatedProject = await haveUserUpdateData({
+      schema: ProjectSchema,
+      data: project,
+      editor,
+      errorHead: 'Rejected edited project',
+      tmpPrefix: 'jobqueue-project',
+      preparseCheck: (rawContents) => {
+        // Check if user deleted the project
+        if (rawContents.trim().length === 0) {
+          userDeletedProject = true;
+          return 'pass';
+        }
+        return 'continue';
+      },
+      postparseCheck: (updatedProject) => {
+        if (
+          updatedProject.name !== projectName &&
+          checkProjectName(updatedProject.name, pool)
+        )
+          return {
+            errMessage: `new name '${updatedProject.name}' already exists in pool`,
+          };
+        if (
+          jobsReferencingProject.length > 0 &&
+          updatedProject.status !== 'active'
+        )
+          return {
+            errMessage: `status '${updatedProject.status}' can not be set: jobs in queue still reference project`,
+          };
+        return 'continue';
+      },
+    });
+
+    if (!userDeletedProject) {
+      pool.push(updatedProject);
+
+      // Check if user wants to rename referencing jobs
+      if (
+        updatedProject.name !== projectName &&
+        jobsReferencingProject.length > 0
+      ) {
+        const renameJobReferences = await confirm({
+          message: `You are changing this project's name to ${updatedProject.name}. Would you like to rename the project entry in referencing jobs?`,
+        });
+        if (renameJobReferences) {
+          jobsReferencingProject.forEach((job) => {
+            job.project = updatedProject.name;
+          });
+          await jobQueue.sync();
+        }
+      }
+      console.log(chalk.blue('[i]'), 'Project edited');
+    } else {
+      console.log(chalk.green('✔'), 'Project deleted');
+    }
+
+    await projectPool.sync();
+  },
+} as const;
 
 export default actions;
