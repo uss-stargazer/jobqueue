@@ -16,29 +16,25 @@ import { confirm, search } from '@inquirer/prompts';
 
 // Helper functions -------------------------------------------------------------------------------
 
-type UserUpdateCheckFunction<T> = (
+type CheckFunction<T> = (
   input: T,
 ) => 'pass' | 'continue' | { errMessage: string };
 
-const haveUserUpdateData = async <S extends z.ZodType>({
-  schema,
-  data,
-  editor,
-  errorHead,
-  tmpPrefix,
-  preparseCheck,
-  postparseCheck,
-}: {
-  schema: S;
-  data: z.infer<S>;
-  editor?: string;
-  errorHead: string;
-  tmpPrefix?: string;
-  preparseCheck?: UserUpdateCheckFunction<string>;
-  postparseCheck?: UserUpdateCheckFunction<z.infer<S>>;
-}): Promise<z.infer<S> | undefined> => {
+const haveUserUpdateData = async <S extends z.ZodType>(
+  schema: S,
+  data: z.infer<S>,
+  options: Partial<{
+    editor: string;
+    errorHead: string;
+    tmpPrefix: string;
+  }>,
+  checks: Partial<{
+    preparse: CheckFunction<string>;
+    postparse: CheckFunction<z.infer<S>>;
+  }>,
+): Promise<z.infer<S> | undefined> => {
   const tmpFile = await tmp.file({
-    prefix: tmpPrefix,
+    prefix: options.tmpPrefix,
     postfix: '.json',
   });
   await fs.writeFile(
@@ -50,19 +46,22 @@ const haveUserUpdateData = async <S extends z.ZodType>({
     undefined;
 
   while (true) {
-    await openEditor([tmpFile.path], { wait: true, editor });
+    await openEditor([tmpFile.path], { wait: true, editor: options.editor });
 
     // Load back editor contents and validate them
 
     const updatedJsonString = await fs.readFile(tmpFile.path, 'utf8');
 
-    if (preparseCheck) {
-      const preparseError = preparseCheck(updatedJsonString);
+    if (checks.preparse) {
+      const preparseError = checks.preparse(updatedJsonString);
       if (preparseError === 'pass') {
         updatedResult = undefined;
         break;
       } else if (typeof preparseError === 'object') {
-        console.log(chalk.red(`${errorHead}:`), preparseError.errMessage);
+        console.log(
+          chalk.red(`${options.errorHead}:`),
+          preparseError.errMessage,
+        );
         continue;
       }
     }
@@ -70,10 +69,13 @@ const haveUserUpdateData = async <S extends z.ZodType>({
     updatedResult = schema.safeParse(JSON.parse(updatedJsonString));
 
     if (updatedResult.success) {
-      if (postparseCheck) {
-        const postparseError = postparseCheck(updatedResult.data);
+      if (checks.postparse) {
+        const postparseError = checks.postparse(updatedResult.data);
         if (typeof postparseError === 'object') {
-          console.log(chalk.red(`${errorHead}:`), postparseError.errMessage);
+          console.log(
+            chalk.red(`${options.errorHead}:`),
+            postparseError.errMessage,
+          );
           continue;
         }
       }
@@ -81,7 +83,7 @@ const haveUserUpdateData = async <S extends z.ZodType>({
       break;
     }
     console.log(
-      chalk.red(`${errorHead}:`),
+      chalk.red(`${options.errorHead}:`),
       `JSON invalid: ${updatedResult.error.message}`,
     );
   }
@@ -93,7 +95,7 @@ const haveUserUpdateData = async <S extends z.ZodType>({
       ? updatedResult.data
       : ((): never => {
           throw new Error(
-            `${errorHead}: JSON invalid: ${updatedResult.error.message}`,
+            `${options.errorHead}: JSON invalid: ${updatedResult.error.message}`,
           );
         })())
   );
@@ -136,27 +138,32 @@ const actions: {
     console.log(chalk.blue('[i]'), 'Delete file contents to finish the job.');
 
     let userDeletedJob = false;
-    const updatedJob = await haveUserUpdateData({
-      schema: JobSchema,
-      data: job,
-      editor,
-      errorHead: 'Rejected dequeued job',
-      tmpPrefix: 'jobqueue-job',
-      preparseCheck(rawContents) {
-        // Check if user deleted the job
-        if (rawContents.trim().length === 0) {
-          userDeletedJob = true;
-          return 'pass';
-        }
-        return 'continue';
+    const updatedJob = await haveUserUpdateData(
+      JobSchema,
+      job,
+      {
+        editor,
+        errorHead: 'Rejected dequeued job',
+        tmpPrefix: 'jobqueue-job',
       },
-      postparseCheck: (job) =>
-        checkProjectName(job.project, pool)
-          ? 'continue'
-          : {
-              errMessage: `invalid project name: '${job.project}' not in project pool`,
-            },
-    });
+      {
+        preparse(rawContents) {
+          // Check if user deleted the job
+          if (rawContents.trim().length === 0) {
+            userDeletedJob = true;
+            return 'pass';
+          }
+          return 'continue';
+        },
+        postparse(job) {
+          return checkProjectName(job.project, pool)
+            ? 'continue'
+            : {
+                errMessage: `invalid project name: '${job.project}' not in project pool`,
+              };
+        },
+      },
+    );
 
     if (!userDeletedJob) {
       // Make sure corresponding project is set to active
@@ -192,19 +199,23 @@ const actions: {
 
     console.log(chalk.blue('[i]'), 'Opening job JSON in editor for editing.');
 
-    const job = await haveUserUpdateData({
-      schema: JobSchema,
-      data: placeholderJob,
-      editor,
-      errorHead: 'Rejected job to be enqueued',
-      tmpPrefix: 'jobqueue-job',
-      postparseCheck: (job) =>
-        checkProjectName(job.project, pool)
-          ? 'continue'
-          : {
-              errMessage: `invalid project name: '${job.project}' not in project pool`,
-            },
-    });
+    const job = await haveUserUpdateData(
+      JobSchema,
+      placeholderJob,
+      {
+        editor,
+        errorHead: 'Rejected job to be enqueued',
+        tmpPrefix: 'jobqueue-job',
+      },
+      {
+        postparse: (job) =>
+          checkProjectName(job.project, pool)
+            ? 'continue'
+            : {
+                errMessage: `invalid project name: '${job.project}' not in project pool`,
+              },
+      },
+    );
 
     // Make sure corresponding project is set to active
     const jobProject = pool.find((project) => project.name === job.project);
@@ -233,19 +244,23 @@ const actions: {
       'Opening project JSON in editor for editing.',
     );
 
-    const project = await haveUserUpdateData({
-      schema: ProjectSchema,
-      data: placeholderProject,
-      editor,
-      errorHead: 'Rejected new project',
-      tmpPrefix: 'jobqueue-project',
-      postparseCheck: (project) =>
-        checkProjectName(project.name, pool)
-          ? {
-              errMessage: `'${project.name}' already exists in pool`,
-            }
-          : 'continue',
-    });
+    const project = await haveUserUpdateData(
+      ProjectSchema,
+      placeholderProject,
+      {
+        editor,
+        errorHead: 'Rejected new project',
+        tmpPrefix: 'jobqueue-project',
+      },
+      {
+        postparse: (project) =>
+          checkProjectName(project.name, pool)
+            ? {
+                errMessage: `'${project.name}' already exists in pool`,
+              }
+            : 'continue',
+      },
+    );
 
     pool.push(project);
     console.log(chalk.green('✔'), 'Added new project');
@@ -294,38 +309,42 @@ const actions: {
     );
 
     let userDeletedProject = false;
-    const updatedProject = await haveUserUpdateData({
-      schema: ProjectSchema,
-      data: project,
-      editor,
-      errorHead: 'Rejected edited project',
-      tmpPrefix: 'jobqueue-project',
-      preparseCheck: (rawContents) => {
-        // Check if user deleted the project
-        if (rawContents.trim().length === 0) {
-          userDeletedProject = true;
-          return 'pass';
-        }
-        return 'continue';
+    const updatedProject = await haveUserUpdateData(
+      ProjectSchema,
+      project,
+      {
+        editor,
+        errorHead: 'Rejected edited project',
+        tmpPrefix: 'jobqueue-project',
       },
-      postparseCheck: (updatedProject) => {
-        if (
-          updatedProject.name !== projectName &&
-          checkProjectName(updatedProject.name, pool)
-        )
-          return {
-            errMessage: `new name '${updatedProject.name}' already exists in pool`,
-          };
-        if (
-          jobsReferencingProject.length > 0 &&
-          updatedProject.status !== 'active'
-        )
-          return {
-            errMessage: `status '${updatedProject.status}' can not be set: jobs in queue still reference project`,
-          };
-        return 'continue';
+      {
+        preparse: (rawContents) => {
+          // Check if user deleted the project
+          if (rawContents.trim().length === 0) {
+            userDeletedProject = true;
+            return 'pass';
+          }
+          return 'continue';
+        },
+        postparse: (updatedProject) => {
+          if (
+            updatedProject.name !== projectName &&
+            checkProjectName(updatedProject.name, pool)
+          )
+            return {
+              errMessage: `new name '${updatedProject.name}' already exists in pool`,
+            };
+          if (
+            jobsReferencingProject.length > 0 &&
+            updatedProject.status !== 'active'
+          )
+            return {
+              errMessage: `status '${updatedProject.status}' can not be set: jobs in queue still reference project`,
+            };
+          return 'continue';
+        },
       },
-    });
+    );
 
     if (!userDeletedProject) {
       pool.push(updatedProject);
