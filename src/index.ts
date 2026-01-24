@@ -46,7 +46,7 @@ const args = process.argv.slice(2);
 
 const isHelp = args.includes('--help') || args.includes('-h');
 if (isHelp || (args.length !== 2 && args.length !== 3)) {
-  console.log('Usage: jobviewer <jobqueue.json> <projectpool.json> [<editor>]');
+  console.log('Usage: jobq <jobqueue.json> <projectpool.json> [<editor>]');
   process.exit(isHelp ? 0 : 1);
 }
 
