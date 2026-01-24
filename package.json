@@ -2,6 +2,8 @@
   "name": "job-queue",
   "version": "0.0.0",
   "description": "A CLI app to keep track of jobs/tasks built around a couple of JSON files.",
+  "author": "USS Stargazer",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "start": "node build/src/main.js",
@@ -14,8 +16,6 @@
     "prettier": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --write",
     "prettier:check": "prettier \"{src,__{tests}__}/**/*.{ts,mts}\" --config .prettierrc --check"
   },
-  "author": "USS Stargazer",
-  "license": "Apache-2.0",
   "dependencies": {
     "@inquirer/prompts": "^8.2.0",
     "@inquirer/search": "^4.1.0",
