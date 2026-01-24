@@ -6,8 +6,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "start": "node build/src/main.js",
-    "clean": "rimraf coverage build tmp",
+    "start": "node dist",
+    "clean": "rimraf coverage dist tmp",
     "prebuild": "npm run lint",
     "build": "tsc -p tsconfig.json",
     "build:watch": "tsc -w -p tsconfig.json",
