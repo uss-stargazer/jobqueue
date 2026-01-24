@@ -15,3 +15,26 @@ The goal is to increase productivity.
 - Work (while you haven't finished the projects you're focusing on)
   - Go through job queue and remove jobs when complete (committing as you go).
   - _\[Daemon\]_ While not on the terminal, think of next jobs, then push to queue.
+
+# TODO
+
+- refactor: make the main repo be the js cli
+    - cli name is jobq
+    - how to make it so that all ya got a do is install it anad then get the cli (how does tsc do it? or vite?)
+        - index.js with shebang and commander in root
+- have it sync with github gists with octokit
+    - have it write to a temp file (that it looks for on init, to see if recover)
+    - then push to gist when exit
+- somehow it needs to store data as a npm cli (specifically the gist and pat)
+    - How to do this?
+    - some jobq specific settings like completed save length can be stored in the queue directly
+- i want it so the user just has to install node, run npm install --global jobqueue, and link a gist
+
+- the other thing
+    - telll me wat to do 
+- the other other thing
+    - remap vim keys for alt jlik
+- the other other other thing
+    - automatically updating gists on file changes
+- the other other other other thing
+    - https://medium.com/@dev-charodeyka/debian-12-is-amazing-how-to-create-your-custom-codehouse-part-1-4-43e93129dcb7
