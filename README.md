@@ -38,3 +38,13 @@ The goal is to increase productivity.
     - automatically updating gists on file changes
 - the other other other other thing
     - https://medium.com/@dev-charodeyka/debian-12-is-amazing-how-to-create-your-custom-codehouse-part-1-4-43e93129dcb7
+
+- on main branch
+    - no json schemas online, generated locally from zod (w/ metadata)
+    - when you delete project, delete referencing jobs
+    - action for edit jsons directly
+    - full sync option
+    - auto fixing config files
+    - save and repopulate editor contents when haveUserEdit rejects
+    - logging after editInteractively tooltips has broken output
+    - versioning for checking json schemas
